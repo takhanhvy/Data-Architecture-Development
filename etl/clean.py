@@ -15,26 +15,91 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def read_raw_dvf_data(filepath):
+def read_raw_dvf_data(file_path) -> pd.DataFrame:
     """
-    Read and merge raw DVF data from a CSV files ("data/bronze_layer/dvf_75_[year].csv") and returns a one single raw dataframe.
+    Read raw DVF data from a CSV file ("data/bronze_layer/dvf_75_[year].csv") and returns a dataframe containing the raw DVF data for one single year.
     
     Args:
-        file_path (str): Path to the CSV file containing DVF data.
+        file_path (Path): Path to the raw DVF CSV file.
     Returns:
-        pd.DataFrame: merged DVF data.
+        pd.DataFrame: raw DVF dataframe.
+    """    
+    if not file_path.exists():
+        raise FileNotFoundError(file_path)
+    return pd.read_csv(file_path, sep=",", encoding="utf-8", header = 0)
+
+
+def preprocess_raw_dvf_data() -> pd.DataFrame:
     """
-    frames = []
+    Preprocess raw DVF data by selecting relevant columns and filtering rows based on specific criteria.
+    The aim is to have 2020-2025 DVF data with the equivalent perimeter as the 2014-2020 aggregated DVF data (data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv).
+    
+    Args:
+        None.
+    Returns:
+        pd.DataFrame: Preprocessed DVF dataframe.
+    """
+    columns_to_keep = ["id_mutation", "code_commune", "nature_mutation", "valeur_fonciere", 
+                       "type_local", "surface_reelle_bati",  "nombre_pieces_principales"]
+    
+    # list of dataframes for each year  
+    df_list = [] 
+
     for year in range(2020, 2026):
         file_path = Path(f"{ROOT}/data/bronze_layer/dvf_75_{year}.csv")
-        if not file_path.exists():
-            raise FileNotFoundError(file_path)
-        frames.append(pd.read_csv(file_path, sep=",", encoding="utf-8"))
-    return pd.concat(frames, ignore_index=True)    
+        df = read_raw_dvf_data(file_path)
+
+        # remove duplicates
+        df = df.drop_duplicates()
+
+        # select relevant columns
+        df = df[columns_to_keep]
+
+        # add year column
+        df["year"] = year
+
+        # filter nature_mutation to keep only sales : "Vente" and "Vente en l'état futur d'achèvement"
+        df = df[df["nature_mutation"].isin(["Vente", "Vente en l'état futur d'achèvement"])]
+
+        # filter type_local to keep only "Appartement" and "Maison"
+        df = df[df["type_local"].isin(["Appartement", "Maison"])]
+
+        # drop rows with missing or zero values in "valeur_fonciere" or "surface_reelle_bati"
+        df = df.dropna(subset=["valeur_fonciere", "surface_reelle_bati"])
+
+        # exclude "Maison" with surface <10 m2 or > 300 m2 , and "Appartement" with surface > 200 m2
+        df = df[~((df["type_local"] == "Maison") & (df["surface_reelle_bati"] < 10))]
+        df = df[~((df["type_local"] == "Maison") & (df["surface_reelle_bati"] > 300))]
+        df = df[~((df["type_local"] == "Appartement") & (df["surface_reelle_bati"] > 200))]
+
+        # exclude housing with more than 8 principle rooms
+        df = df[~(df["nombre_pieces_principales"] > 8)]
+
+        # exclude housing with value valeur_fonciere <= 2€
+        df = df[~(df["valeur_fonciere"] <= 2)]
+
+        df_list.append(df)
+
+    return pd.concat(df_list, ignore_index=True)
+
+
+def read_agg_dvf_data() -> pd.DataFrame:
+    """
+    Read aggregated DVF data from a CSV file ("data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv") and returns a dataframe.
+    
+    Args:
+        None
+    Returns:
+        pd.DataFrame: aggregated DVF dataframe.
+    """
+    file_path = Path(f"{ROOT}/data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv")
+    if not file_path.exists():
+        raise FileNotFoundError(file_path)
+    return pd.read_csv(file_path, sep=";", encoding="utf-8", header=0)
 
 
 def main():
-    res = read_raw_dvf_data(f"{ROOT}/data/bronze_layer/dvf_75_2020.csv")
+    res = preprocess_raw_dvf_data()
     print(res)
 
 if __name__ == "__main__":
