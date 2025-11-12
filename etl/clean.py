@@ -10,23 +10,32 @@ Data sources include CSV files (data/bronze_layer/*.csv):
 """
 
 import pandas as pd
+from pathlib import Path
 
-def read_dvf_data(file_path):
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read_raw_dvf_data(filepath):
     """
-    Reads raw DVF data from a CSV files ("data/bronze_layer/dvf_75_[year].csv") and returns a cleaned DataFrame.
+    Read and merge raw DVF data from a CSV files ("data/bronze_layer/dvf_75_[year].csv") and returns a one single raw dataframe.
     
     Args:
         file_path (str): Path to the CSV file containing DVF data.
     Returns:
-        pd.DataFrame: Cleaned DVF data.
+        pd.DataFrame: merged DVF data.
     """
-
-    df = pd.read_csv(file_path, sep=';', encoding='utf-8', header=0)
-    return df.head()
-    # Perform cleaning operations   
+    frames = []
+    for year in range(2020, 2026):
+        file_path = Path(f"{ROOT}/data/bronze_layer/dvf_75_{year}.csv")
+        if not file_path.exists():
+            raise FileNotFoundError(file_path)
+        frames.append(pd.read_csv(file_path, sep=",", encoding="utf-8"))
+    return pd.concat(frames, ignore_index=True)    
 
 
 def main():
-    if __name__ == "__main__":
-        res = read_dvf_data("./data/bronze_layer/dvf_75_2020.csv")
-        print(res)
+    res = read_raw_dvf_data(f"{ROOT}/data/bronze_layer/dvf_75_2020.csv")
+    print(res)
+
+if __name__ == "__main__":
+    main()
