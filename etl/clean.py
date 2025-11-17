@@ -39,8 +39,6 @@ def preprocess_raw_dvf_data() -> pd.DataFrame:
     Returns:
         pd.DataFrame: Preprocessed DVF dataframe.
     """
-    columns_to_keep = ["id_mutation", "code_commune", "nature_mutation", "valeur_fonciere", 
-                       "type_local", "surface_reelle_bati",  "nombre_pieces_principales"]
     
     # list of dataframes for each year  
     df_list = [] 
@@ -49,17 +47,17 @@ def preprocess_raw_dvf_data() -> pd.DataFrame:
         file_path = Path(f"{ROOT}/data/bronze_layer/dvf_75_{year}.csv")
         df = read_raw_dvf_data(file_path)
 
-        # remove duplicates
-        df = df.drop_duplicates()
-
-        # select relevant columns
-        df = df[columns_to_keep]
+        # filter nature_mutation to keep only sales : "Vente" 
+        df = df[df["nature_mutation"] == "Vente"]
 
         # add year column
         df["year"] = year
 
-        # filter nature_mutation to keep only sales : "Vente" and "Vente en l'état futur d'achèvement"
-        df = df[df["nature_mutation"].isin(["Vente", "Vente en l'état futur d'achèvement"])]
+        # drop duplicates
+        df = df.drop_duplicates()
+
+        # drop rows with missing code_commune, valeur_fonciere, type_local, surface_reelle_bati
+        df = df.dropna(subset=["code_commune", "valeur_fonciere", "type_local", "surface_reelle_bati"])
 
         # filter type_local to keep only "Appartement" and "Maison"
         df = df[df["type_local"].isin(["Appartement", "Maison"])]
@@ -78,24 +76,70 @@ def preprocess_raw_dvf_data() -> pd.DataFrame:
         # exclude housing with value valeur_fonciere <= 2€
         df = df[~(df["valeur_fonciere"] <= 2)]
 
+        # calculate price per square meter
+        df["price_m2"] = df["valeur_fonciere"] / df["surface_reelle_bati"]
+
         df_list.append(df)
 
-    return pd.concat(df_list, ignore_index=True)
+    raw_dvf_data = pd.concat(df_list, ignore_index=True)
+
+    # aggregate by code_commune and year 
+    # to get total number of sale transactions and average price per square meter
+    agg_raw_dvf_data = raw_dvf_data.groupby(["code_commune", "year"]).agg(
+        nbmut_vente =("id_mutation", "count"),
+        nbmut_ventem = ("id_mutation", lambda x: x["type_local"].value_counts().get("Maison", 0)),
+        nbmut_ventea = ("id_mutation", lambda x: x["type_local"].value_counts().get("Appartement", 0)),
+        vfm2_ventea = ("price_m2", "mean"),
+        vfm2_ventea_t1 = ("price_m2", lambda x: (x["nombre_pieces_principales"] == 1).mean()),
+        vfm2_ventea_t2 = ("price_m2", lambda x: (x["nombre_pieces_principales"] == 2).mean()),
+        vfm2_ventea_t3 = ("price_m2", lambda x: (x["nombre_pieces_principales"] == 3).mean()),
+        vfm2_ventea_t4 = ("price_m2", lambda x: (x["nombre_pieces_principales"] == 4).mean()),
+        vfm2_ventea_t5 = ("price_m2", lambda x: (x["nombre_pieces_principales"] == 5).mean()),
+    ).reset_index()
+
+    return agg_raw_dvf_data
 
 
 def read_agg_dvf_data() -> pd.DataFrame:
     """
-    Read aggregated DVF data from a CSV file ("data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv") and returns a dataframe.
+    Read and clean aggregated DVF data from a CSV file ("data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv") and returns a dataframe.
     
     Args:
         None
     Returns:
-        pd.DataFrame: aggregated DVF dataframe.
+        pd.DataFrame: cleaned aggregated DVF dataframe.
     """
     file_path = Path(f"{ROOT}/data/bronze_layer/donnees-valeurs-foncieres-a-la-commune_2014_2020.csv")
     if not file_path.exists():
         raise FileNotFoundError(file_path)
-    return pd.read_csv(file_path, sep=";", encoding="utf-8", header=0)
+    
+    df = pd.read_csv(file_path, sep=";", encoding="utf-8", header=0)
+
+    return df
+
+
+def clean_agg_dvf_data() -> pd.DataFrame:
+
+    """
+    Clean aggregated DVF data by selecting relevant columnsa.
+    
+    Args:
+        None.
+    Returns:
+        pd.DataFrame: Cleaned aggregated DVF dataframe.
+    """    
+    df = read_agg_dvf_data()
+    
+    # drop duplicates
+    df = df.drop_duplicates()
+
+    # select relevant columns
+    columns_to_keep = ["anneemut", "codgeo_2020", "nbmut_vente", "nbmut_ventem", "nbmut_ventea",
+                       "vfm2_ventea", "vfm2_ventea_t1", "vfm2_ventea_t2", "vfm2_ventea_t3", 
+                       "vfm2_ventea_t4", "vfm2_ventea_t5"]
+    df = df[columns_to_keep]
+
+    return df
 
 
 def main():
