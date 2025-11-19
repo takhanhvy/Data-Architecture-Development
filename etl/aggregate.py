@@ -36,11 +36,26 @@ def agg_dvf_by_arr_year(df: pd.DataFrame) -> pd.DataFrame:
     return agg_df    
 
 
+def save_to_gold(df: pd.DataFrame, output_path: Path) -> None:
+    """
+    Save the aggregated DVF dataframe to a CSV file in the gold layer (data/gold_layer/).
+    
+    Args:
+        df (pd.DataFrame): Aggregated DVF dataframe.
+        output_path (Path): Path to save the aggregated DVF CSV file.
+    Returns:
+        None.
+    """    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False, header=True, sep=";", encoding="utf-8")
+
+
 def main(): 
     dvf_data_file = "cleaned_dvf_data.csv"
     dvf_data = read_cleaned_csv_files(dvf_data_file)
     agg_df = agg_dvf_by_arr_year(dvf_data)
-    return print(agg_df.head())
+    output_path = Path(f"{ROOT}/data/gold_layer/agg_dvf_data.csv")
+    save_to_gold(agg_df, output_path)
 
 
 if __name__ == "__main__":
